@@ -1,9 +1,6 @@
-#!/usr/bin/env python
-# coding: utf-8
 # Adapted from Lab 5 - Forgery Dataset, used ChatGPT where indicated
 
 # In[1]:
-
 
 import os
 import glob
@@ -38,15 +35,13 @@ TEST_IMG_DIR  = DATA_ROOT / "test_images"
 
 # In[3]:
 
-
 # Parameters
 IMG_SIZE = 512   # can bump to 1024
 BATCH_SIZE = 1   # keep small to start (was using 8 in Jupyter, but decreased here)
-NUM_EPOCHS = 5   # short “toy” training; they can increase
+NUM_EPOCHS = 5   # short “toy” training; they can increase (was running around 20 in Juypter)
 
 # For demo purposes, let's train on a small number of images (so that you can run the notebook)
 NUM_TRAIN_SAMPLES = 100   # try 100, 200, 500, etc. as more files are made
-
 
 # In[4]:
 
@@ -59,6 +54,7 @@ print("Train masks found:", len(train_mask_paths))
 
 # In[5]
 
+# esablishes masks by their ids and lists 3 items
 mask_by_id = {
     Path(p).stem: p
     for p in glob.glob(str(TRAIN_MASK_DIR / "*.npy"))
@@ -67,8 +63,6 @@ mask_by_id = {
 list(mask_by_id.items())[:3]
 
 # In[6]:
-
-
 # Sample from the images to speed up demo
 
 # pick a random subset of indices
@@ -95,6 +89,7 @@ from PIL import Image
 import torchvision.transforms as T
 import torch
 class MidlineDataset(Dataset):
+    #returns image, mask and case_id
     def __init__(self, image_paths, mask_by_id, img_size=256, augment=True):
         # Defining variables, adding augmentation
         self.image_paths = image_paths
@@ -115,7 +110,7 @@ class MidlineDataset(Dataset):
 
     def __getitem__(self, idx):
         if self.augment:
-            #accesses item based on whether or not each image is augmented
+            #accesses item based on whether or not the images are augmented
             img_idx = idx // 4
             aug_id = idx % 4
         else:
@@ -133,7 +128,6 @@ class MidlineDataset(Dataset):
         if case_id in self.mask_by_id:
             npy_path = self.mask_by_id[case_id]
             mask_np = np.load(npy_path)
-            #print(mask_np) # e.g. (2, H, W) or (1, 1, 648) etc.
 
             # Ensure we end up with a 2D array (H, W)
             if mask_np.ndim == 3:
@@ -166,7 +160,7 @@ class MidlineDataset(Dataset):
             # This helps us make better generalizations
             from scipy.ndimage import distance_transform_edt
 
-            # This helps us to try and close to the line
+            # This helps us to try and get close to the line
             dist = distance_transform_edt(1 - mask.numpy())
             sigma = 3.0  # try 2–5
             heatmap = np.exp(-(dist ** 2) / (2 * sigma ** 2))
@@ -188,16 +182,15 @@ class MidlineDataset(Dataset):
                 image = torch.flip(image, dims=[1])
                 mask = torch.flip(mask, dims=[1])
             elif aug_id == 3:
-                # 180-degree rotation
-                image = torch.rot90(image, k=2, dims=[1, 2])
-                mask = torch.rot90(mask, k=2, dims=[1, 2])
+                # 90-degree rotation
+                image = torch.rot90(image, k=1, dims=[1, 2])
+                mask = torch.rot90(mask, k=1, dims=[1, 2])
 
 
         return image, mask, case_id
 
 
 # In[8]:
-
 
 # Make sure things look OK
 
@@ -229,7 +222,7 @@ len(train_ds), len(val_ds)
 
 # In[10]:
 
-# Written with the hlpe of ChatGPT to be able to visualize my numpy arrays over the images
+# Written with the help of ChatGPT to be able to visualize the numpy arrays over the images
 import matplotlib.pyplot as plt
 for i in range(20):
     img, mask, cid = train_ds[i]
@@ -329,13 +322,13 @@ def weighted_mse(pred, target, weight_factor=50.0):
     """
     weight = torch.ones_like(target)
     weight[target > 0] = weight_factor  # helps to boost the line pixels so that they are understood to be important
-    return ((pred - target)**2 * weight).mean()
+    return ((pred - target)**2 * weight).mean() #helps to identify efficacy
 
 
 
 # In[13]:
 
-
+#not all that important for MSE, but kept here, returns IOU mean
 def iou(preds, targets, thresh=0.5, eps=1e-6):
     """
     preds, targets: (B,1,H,W) tensors with probs / 0-1 masks
@@ -357,126 +350,10 @@ MAX_VAL_BATCHES   = 10
 
 
 # In[15]:
-# Adapted with the help of ChatGPT
 
-from tqdm import tqdm  # adapted for GitHub
-
-def train_one_epoch(model, loader, optimizer, max_batches=None):
-    """
-    Train for a single epoch.
-
-    max_batches:
-        - None  => use ALL batches in loader
-        - int k => use at most k batches (handy for fast debug runs)
-    """
-    model.train()
-    running_loss = 0.0
-    running_iou  = 0.0
-    total_samples = 0
-
-    num_steps = len(loader) if max_batches is None else min(len(loader), max_batches)
-
-    pbar = tqdm(loader, desc="Train", total=num_steps, leave=True)
-
-    for batch_idx, batch in enumerate(pbar):
-        if max_batches is not None and batch_idx >= max_batches:
-            break
-
-        images, masks = batch[:2]
-        images = images.to(device)
-        masks  = masks.to(device)
-        bs = images.size(0)
-
-        optimizer.zero_grad()
-        outputs = model(images)
-        loss = criterion(outputs, masks)
-        # ADD: monitor collapse vs learning
-        with torch.no_grad():
-            # inference
-            probs = logits[0, 0].cpu().numpy()
-            print(
-                "loss:", loss.item(),
-                "pred mean:", probs.mean().item(),
-                "pred std:", probs.std().item()
-            )
-
-        loss.backward()
-        optimizer.step()
-
-        with torch.no_grad():
-            probs = torch.sigmoid(outputs)
-            batch_iou = iou(probs, masks)
-
-        running_loss += loss.item() * bs
-        running_iou  += batch_iou * bs
-        total_samples += bs
-
-        pbar.set_postfix({"loss": f"{loss.item():.4f}"})
-
-    if total_samples == 0:
-        return 0.0, 0.0
-
-    #computes important information regarding learning (iou is much less important in this context and is almost always close to 0)
-    avg_loss = running_loss / total_samples
-    avg_iou  = running_iou / total_samples
-    return avg_loss, avg_iou
-
-
-def eval_one_epoch(model, loader, max_batches=None):
-    """
-    Evaluate on a dataset.
-
-    max_batches:
-        - None  => use ALL batches in loader (this is what you want for "all 48")
-        - int k => use at most k batches (for fast sanity checks)
-    """
-    model.eval()
-    running_loss = 0.0
-    running_iou  = 0.0
-    total_samples = 0
-
-    num_steps = len(loader) if max_batches is None else min(len(loader), max_batches)
-
-    pbar = tqdm(loader, desc="Val", total=num_steps, leave=False)
-
-    with torch.no_grad():
-        for batch_idx, batch in enumerate(pbar):
-            if max_batches is not None and batch_idx >= max_batches:
-                break
-
-            images, masks = batch[:2]
-            images = images.to(device)
-            masks  = masks.to(device)
-            bs = images.size(0)
-
-            outputs = model(images)
-            loss = weighted_mse(output, mask, weight_factor=50.0) 
-
-            #loss = criterion(outputs, masks)
-            probs = torch.sigmoid(outputs)
-            batch_iou = iou(probs, masks)
-
-            running_loss += loss.item() * bs
-            running_iou  += batch_iou * bs
-            total_samples += bs
-
-            pbar.set_postfix({"loss": f"{loss.item():.4f}"})
-
-    if total_samples == 0:
-        return 0.0, 0.0
-
-    #computes important information regarding learning (iou is much less important in this context and is almost always close to 0)
-    avg_loss = running_loss / total_samples
-    avg_iou  = running_iou / total_samples
-    return avg_loss, avg_iou
-
-
-# In[16]:
-
-
-#chatgpt version
-from tqdm import tqdm
-
+#Adapted with the help of ChatGPT
+from tqdm import tqdm #adapted for GitHub
+#training, returns average loss and iou for the training
 def train_one_epoch(model, loader, optimizer, max_batches=None, weight_factor=50.0):
     model.train()
     running_loss = 0.0
@@ -516,11 +393,12 @@ def train_one_epoch(model, loader, optimizer, max_batches=None, weight_factor=50
 
         pbar.set_postfix({"loss": f"{loss.item():.4f}"})
 
+    #computing the important readouts to evaluate efficacy of training, iou is not that important in this context and is almost always around 0
     avg_loss = running_loss / total_samples if total_samples > 0 else 0.0
     avg_iou = running_iou / total_samples
     return avg_loss, avg_iou
 
-
+#evaluating, returns average loss and iou 
 def eval_one_epoch(model, loader, max_batches=None, weight_factor=50.0):
     model.eval()
     running_loss = 0.0
@@ -541,9 +419,7 @@ def eval_one_epoch(model, loader, max_batches=None, weight_factor=50.0):
             bs = images.size(0)
 
             outputs = model(images)
-            # After outputs are computed
-# probs = outputs[0,0]  # continuous regression
-# threshold if you want a binary mask
+
             mask_pred = (outputs > 0.5).float()  # optional for IoU
             batch_iou = iou(mask_pred, masks)
             running_iou += batch_iou * bs
@@ -555,12 +431,13 @@ def eval_one_epoch(model, loader, max_batches=None, weight_factor=50.0):
 
             pbar.set_postfix({"loss": f"{loss.item():.4f}"})
 
+    #computing the important readouts to evaluate efficacy of training, iou is not that important in this context and is almost always around 0
     avg_loss = running_loss / total_samples if total_samples > 0 else 0.0
     avg_iou = running_iou / total_samples
     return avg_loss, avg_iou
 
 
-# In[22]:
+# In[16]:
 
 # Runs training
 for epoch in range(1, NUM_EPOCHS + 1):
@@ -575,83 +452,15 @@ for epoch in range(1, NUM_EPOCHS + 1):
     )
 
 
-# In[24]:
+# In[17]:
 
-
-# weighted_mse defined as above
-
-def train_one_epoch(model, loader, optimizer, max_batches=None):
-    model.train()
-    running_loss = 0.0
-    total_samples = 0
-    num_steps = len(loader) if max_batches is None else min(len(loader), max_batches)
-    pbar = tqdm(loader, desc="Train", total=num_steps)
-
-    for batch_idx, batch in enumerate(pbar):
-        if max_batches is not None and batch_idx >= max_batches:
-            break
-
-        images, masks = batch[:2]
-        images = images.to(device)
-        masks  = masks.to(device)
-        bs = images.size(0)
-
-        optimizer.zero_grad()
-        outputs = model(images)
-        loss = mse(pred, target)   # no sigmoid
-
-        #loss = weighted_mse(outputs, masks, weight_factor=50.0)
-        loss.backward()
-        optimizer.step()
-
-        running_loss += loss.item() * bs
-        total_samples += bs
-        pbar.set_postfix({"loss": f"{loss.item():.4f}"})
-
-    avg_loss = running_loss / total_samples
-    return avg_loss
-
-
-# In[25]:
-
-
-def eval_one_epoch(model, loader, max_batches=None):
-    model.eval()
-    running_loss = 0.0
-    total_samples = 0
-    num_steps = len(loader) if max_batches is None else min(len(loader), max_batches)
-    pbar = tqdm(loader, desc="Val", total=num_steps, leave=False)
-
-    with torch.no_grad():
-        for batch_idx, batch in enumerate(pbar):
-            if max_batches is not None and batch_idx >= max_batches:
-                break
-
-            images, masks = batch[:2]
-            images = images.to(device)
-            masks  = masks.to(device)
-            bs = images.size(0)
-
-            outputs = model(images)
-            loss = weighted_mse(outputs, masks, weight_factor=50.0)
-
-            running_loss += loss.item() * bs
-            total_samples += bs
-            pbar.set_postfix({"loss": f"{loss.item():.4f}"})
-
-    avg_loss = running_loss / total_samples
-    return avg_loss
-
-
-# In[26]:
-
-
+#prints length of the training dataset
 print("Dataset length:", len(train_ds))
 
 
-# In[27]:
+# In[18]:
 
-
+# establishes variables for the testing dataset
 class MidlineTestDataset(Dataset):
     def __init__(self, image_dir, img_size=256):
         self.image_paths = sorted(glob.glob(str(image_dir / "*.png")))
@@ -672,7 +481,7 @@ class MidlineTestDataset(Dataset):
         return img, case_id
 
 
-# In[28]:
+# In[19]:
 
 
 from torch.utils.data import DataLoader
@@ -685,56 +494,30 @@ print("Number of test images:", len(test_ds))
 print("Example test path:", test_ds.image_paths[0] if len(test_ds) > 0 else "None")
 
 
-# In[29]:
-
-
+# In[20]:
+#written with the help of ChatGPT
+import matplotlib.pyplot as plt
 model.eval()
 pred_annotations = []
 
+# runs predictions on test dataset, and prints output as a binary numpy array (isn't particularly effective compared to other processing/visualization techniques)
 with torch.no_grad():
     for img, case_id in test_loader:
         img = img.to(device)
         logits = model(img)
         probs = logits[0, 0].cpu().numpy()
 
-        #probs = torch.sigmoid(logits)[0, 0].cpu().numpy()
-
         # Simple threshold
         mask_pred = (probs > 0.5).astype(np.uint8)
-
-        # Heuristic: if almost no positive pixels, treat as authentic
-       # if mask_pred.sum() < 10:  # students can tweak this
-        #    annotation = "authentic"
-        #else:
-         #   annotation = mask_to_rle(mask_pred)
-
-        # case_id is a list of strings because batch_size=1 => take [0]
-        #pred_annotations.append((case_id[0]))
-
-# For the local small dataset, we can just build submission directly:
-#submission = pd.DataFrame(pred_annotations, columns=["case_id", "annotation"])
-#submission.head()
+        plt.imshow(mask_pred, cmap="gray")
+        plt.title(f"Predicted Mask")
+        plt.axis("off")
+        plt.show()
 
 
-# In[30]:
+# In[21]:
 
-
-import numpy as np
-from scipy.ndimage import distance_transform_edt
-
-def line_mask_to_gaussian(mask, sigma=3):
-    """
-    mask: (H, W) with 1 on symmetry line, 0 elsewhere
-    returns: float32 heatmap in [0, 1]
-    """
-    dist = distance_transform_edt(1 - mask)
-    heatmap = np.exp(-(dist ** 2) / (2 * sigma ** 2))
-    return heatmap.astype(np.float32)
-
-
-# In[31]:
-
-
+#written with the help of ChatGPT, another method to attempt to visualize
 import matplotlib.pyplot as plt
 
 model.eval()
@@ -757,7 +540,6 @@ with torch.no_grad():
         plt.figure(figsize=(5, 5))
         plt.imshow(img_np)
         plt.imshow(pred, cmap="magma", alpha=0.6)
-        #plt.contour(pred, levels=[pred.max() * 0.8], colors="cyan", linewidths=2)
         plt.colorbar(label="Predicted symmetry field")
         plt.title(f"{case_id[0]} — Inference Output")
         plt.axis("off")
@@ -766,9 +548,9 @@ with torch.no_grad():
 
 
 
-# In[33]:
+# In[22]:
 
-
+#another method to visualize, highlighting a heatmap, similar to the previous one
 plt.imshow(pred, cmap="magma")
 plt.colorbar()
 plt.title("Predicted symmetry field")
@@ -776,14 +558,12 @@ plt.show()
 plt.contour(pred, levels=[pred.min() + 0.03], colors="cyan")
 print("hello")
 print(pred.min(), pred.max())
-#heatmap = exp(-(dist**2) / (2 * sigma**2))
-# mask: 1 on symmetry line, 0 elsewhere
 
 
 
-# In[34]:
+# In[23]:
 
-
+#printing a different heatmap (usually pretty identical to the above)
 plt.imshow(probs, cmap="Reds", alpha=0.5)
 plt.colorbar()
 
@@ -793,9 +573,9 @@ plt.colorbar()
 plt.show()
 
 
-# In[35]:
+# In[24]:
 
-
+#my personal preference for viewing output, written with help of ChatGPT
 import matplotlib.pyplot as plt
 
 model.eval()
@@ -812,17 +592,65 @@ with torch.no_grad():
         # Convert image for plotting
         img_np = img[0].permute(1,2,0).cpu().numpy()  # (H, W, C)
 
-        # Optional: if you have case_id in rest
+        #printing image and prediciton next to it
+        plt.figure(figsize=(10, 5))
+
+        plt.subplot(1, 2, 1)
+        plt.imshow(img_np)
+        plt.title("Input Image")
+        plt.axis("off")
+
+        plt.subplot(1, 2, 2)
+        plt.imshow(pred, cmap="gray")
+        plt.title("Model Prediction")
+        plt.axis("off")
+
+        plt.show()
+
+        #stops after first one, can be removed
+        break
 
 
-# In[36]:
 
+# In[25]:
+# another option to be able to visualize predicted mask, written with help of ChatGPT
+import matplotlib.pyplot as plt
+from PIL import Image
 
-print("probs min/max/mean/std:", probs.min(), probs.max(), probs.mean(), probs.std())
+model.eval()
+pred_annotations = []
 
+with torch.no_grad():
+    for img, case_id in test_loader:
+        img = img.to(device)
+        logits = model(img)
+        probs = torch.sigmoid(logits)[0, 0].cpu().numpy()
 
-# In[37]:
-# To be able to visualize predicted mask, written with help of ChatGPT
+        print(f"Probs: {probs}")  # Check the probability output, can be removed
+        mask_pred = (probs > 0.5).astype(np.uint8)
+
+        print(f"Mask sum: {mask_pred.sum()}")  # Check how many positive pixels
+
+        # Plot the predicted mask if it's not blank
+        if mask_pred.sum() > 0:
+            plt.figure(figsize=(6,6))
+            plt.imshow(mask_pred, cmap='gray')  # Display as grayscale
+            plt.title(f"Predicted Mask for Case {case_id[0]}")
+            plt.axis('off')
+            plt.show()
+        else:
+            print(f"Blank mask detected for case {case_id[0]}.")
+
+        # Save the mask as an image file (only if non-zero)
+        if mask_pred.sum() > 0:
+            mask_image = Image.fromarray(mask_pred * 255)  # Convert to 0-255 range
+            mask_image.save(f"predicted_mask_{case_id[0]}.png")
+        else:
+            print(f"Skipping save for blank mask for case {case_id[0]}.")
+
+# In[26]:
+
+# last visualization option, very different from previous, written with help from ChatGPT
 import matplotlib.pyplot as plt
 from PIL import Image
 
@@ -855,12 +683,13 @@ with torch.no_grad():
             mask_image = Image.fromarray(mask_pred * 255)  # Convert to 0-255 range
             mask_image.save(f"predicted_mask_{case_id[0]}.png")
         else:
-            print(f"Skipping save for blank mask for case {case_id[0]}.")
+            print(f"Skipping save for blank mask for case {case_id[0]}.") #great for checking if there is a prediciton at all
 
 
 
-# In[285]:
+# In[27]:
 # Check training on one image to see if it works, written with the help of ChatGPT
+# will note that the loss is jumping around the 400th iteration, but visualization continues to improve in jupyter
 
 model.train()
 img, mask, _ = train_ds[10]
@@ -877,15 +706,16 @@ for i in range(500): # train just 1 image 500 times
     loss.backward()
     optimizer.step()
 
-    if i % 100 == 0: #prints out every 100 to check functionality
+    if i % 100 == 0: #prints out every 100 to check functionality, showing loss and the image
         print(f"iter {i}, loss: {loss.item()}")
         plt.imshow(output[0,0].detach().cpu(), cmap="hot")
         plt.show()
 
 
 
-# In[81]:
+# In[28]:
 # Training on just 5 images to confirm efficacy, written with the help of ChatGPT
+# noting that the loss is very low from the start (around 0.000011)
 
 import torch
 import torch.nn as nn
@@ -916,7 +746,7 @@ def weighted_mse(pred, target, weight_factor=50.0):
 model = model.to(device)
 model.train()
 optimizer = optim.Adam(model.parameters(), lr=1e-3)
-num_iters = 500
+num_iters = 100 #decreased from 500 to make more efficient for github run
 
 for i in range(num_iters):
     optimizer.zero_grad()
@@ -925,7 +755,7 @@ for i in range(num_iters):
     loss.backward()
     optimizer.step()
 
-    if i % 100 == 0 or i == num_iters-1:
+    if i % 10 == 0 or i == num_iters-1: #prints out information every 10 to be able to see major changes; includes loss, iteration and all 5 images
         print(f"Iter {i}, loss: {loss.item():.6f}")
         plt.figure(figsize=(15,3))
         for j in range(len(subset_indices)):
@@ -934,45 +764,5 @@ for i in range(num_iters):
             plt.title(case_ids[j])
             plt.axis("off")
         plt.show()
-
-
-# In[82]:
-
-
-import matplotlib.pyplot as plt
-from PIL import Image
-
-model.eval()
-pred_annotations = []
-
-with torch.no_grad():
-    for img, case_id in test_loader:
-        img = img.to(device)
-        logits = model(img)
-        probs = torch.sigmoid(logits)[0, 0].cpu().numpy()
-
-        print(f"Probs: {probs}")  # Check the probability output
-        mask_pred = (probs > 0.5).astype(np.uint8)
-
-        print(f"Mask sum: {mask_pred.sum()}")  # Check how many positive pixels
-
-        # Plot the predicted mask if it's not blank
-        if mask_pred.sum() > 0:
-            plt.figure(figsize=(6,6))
-            plt.imshow(mask_pred, cmap='gray')  # Display as grayscale
-            plt.title(f"Predicted Mask for Case {case_id[0]}")
-            plt.axis('off')
-            plt.show()
-        else:
-            print(f"Blank mask detected for case {case_id[0]}.")
-
-        # Save the mask as an image file (only if non-zero)
-        if mask_pred.sum() > 0:
-            mask_image = Image.fromarray(mask_pred * 255)  # Convert to 0-255 range
-            mask_image.save(f"predicted_mask_{case_id[0]}.png")
-        else:
-            print(f"Skipping save for blank mask for case {case_id[0]}.")
-
-
 
 
