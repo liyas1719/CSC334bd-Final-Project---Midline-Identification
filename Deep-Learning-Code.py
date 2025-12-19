@@ -916,7 +916,7 @@ def weighted_mse(pred, target, weight_factor=50.0):
 model = model.to(device)
 model.train()
 optimizer = optim.Adam(model.parameters(), lr=1e-3)
-num_iters = 1000
+num_iters = 500
 
 for i in range(num_iters):
     optimizer.zero_grad()
