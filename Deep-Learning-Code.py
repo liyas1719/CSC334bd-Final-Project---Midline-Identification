@@ -57,8 +57,16 @@ print("Train images found:", len(train_image_paths))
 train_mask_paths = sorted(glob.glob(str(TRAIN_MASK_DIR / "*.npy")))
 print("Train masks found:", len(train_mask_paths))
 
+# In[5]
 
-# In[5]:
+mask_by_id = {
+    Path(p).stem: p
+    for p in glob.glob(str(TRAIN_MASK_DIR / "*.npy"))
+}
+
+list(mask_by_id.items())[:3]
+
+# In[6]:
 
 
 # Sample from the images to speed up demo
@@ -79,7 +87,7 @@ train_loader = DataLoader(
 )
 
 
-# In[6]:
+# In[7]:
 
 # Adapted with the support of ChatGPT for the augmentation and heatmap components
 import numpy as np
@@ -188,7 +196,7 @@ class MidlineDataset(Dataset):
         return image, mask, case_id
 
 
-# In[7]:
+# In[8]:
 
 
 # Make sure things look OK
@@ -203,7 +211,7 @@ print("mask shape:", m.shape, "dtype:", m.dtype)
 print("min/max:", m.min(), m.max())
 
 
-# In[8]:
+# In[9]:
 
 
 # simple split – could also stratify based on "has mask"
@@ -219,7 +227,7 @@ val_loader   = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False, num_work
 len(train_ds), len(val_ds)
 
 
-# In[9]:
+# In[10]:
 
 # Written with the hlpe of ChatGPT to be able to visualize my numpy arrays over the images
 import matplotlib.pyplot as plt
@@ -238,7 +246,7 @@ for i in range(20):
     plt.show()
 
 
-# In[10]:
+# In[11]:
 
 # Building the model
 class DoubleConv(nn.Module):
@@ -305,7 +313,7 @@ class SmallUNet(nn.Module):
 
 
 
-# In[11]:
+# In[12]:
 
 # Written with the help of ChatGPT
 criterion = torch.nn.MSELoss() # MSE chosen due to it's efficacy with this type of learning
@@ -325,7 +333,7 @@ def weighted_mse(pred, target, weight_factor=50.0):
 
 
 
-# In[12]:
+# In[13]:
 
 
 def iou(preds, targets, thresh=0.5, eps=1e-6):
@@ -341,14 +349,14 @@ def iou(preds, targets, thresh=0.5, eps=1e-6):
     return iou.mean()
 
 
-# In[13]:
+# In[14]:
 
 # Setting more parameters
 MAX_TRAIN_BATCHES = 10   # cap batches per epoch
 MAX_VAL_BATCHES   = 10
 
 
-# In[14]:
+# In[15]:
 # Adapted with the help of ChatGPT
 
 from tqdm import tqdm  # adapted for GitHub
@@ -463,7 +471,7 @@ def eval_one_epoch(model, loader, max_batches=None):
     return avg_loss, avg_iou
 
 
-# In[15]:
+# In[16]:
 
 
 #chatgpt version
