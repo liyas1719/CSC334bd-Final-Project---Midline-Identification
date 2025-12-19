@@ -30,7 +30,7 @@ print("Using device:", device)
 # In[2]:
 
 # Identifying paths to access the training, mask and test images
-DATA_ROOT = Path("/workspaces/CSC334bd-Final-Project---Midline-Identification")
+DATA_ROOT = Path("/workspaces/Midline-Identification_CSC334bd_Barresi-Lab")
 
 TRAIN_IMG_DIR = DATA_ROOT / "images"
 TRAIN_MASK_DIR = DATA_ROOT / "masks (npy)"
